@@ -146,9 +146,6 @@ pub(crate) struct TemplateInfo {
     pub name: String,
     pub path: String,
     pub description: Option<String>,
-    /// Full path in the repository (e.g., "src/cli-battery-pack/templates/simple")
-    /// Resolved by searching the GitHub tree API
-    pub repo_path: Option<String>,
 }
 
 #[derive(Clone)]
@@ -777,16 +774,10 @@ pub(crate) fn build_battery_pack_detail(
     let templates = spec
         .templates
         .iter()
-        .map(|(name, tmpl)| {
-            let repo_path = repo_tree
-                .as_ref()
-                .and_then(|tree| find_template_path(tree, &tmpl.path));
-            TemplateInfo {
-                name: name.clone(),
-                path: tmpl.path.clone(),
-                description: tmpl.description.clone(),
-                repo_path,
-            }
+        .map(|(name, tmpl)| TemplateInfo {
+            name: name.clone(),
+            path: tmpl.path.clone(),
+            description: tmpl.description.clone(),
         })
         .collect();
 
@@ -930,13 +921,6 @@ pub(crate) fn find_example_path(tree: &[String], example_name: &str) -> Option<S
 
 /// Find the full repository path for a template directory.
 /// Searches the tree for a path matching "templates/{name}" or "{name}".
-pub(crate) fn find_template_path(tree: &[String], template_path: &str) -> Option<String> {
-    // The template path from config might be "templates/simple" or just the relative path
-    tree.iter()
-        .find(|path| path.ends_with(template_path))
-        .cloned()
-}
-
 /// A resolved battery pack crate directory. Owns the temp dir (if any) to keep it alive.
 pub(crate) struct ResolvedCrate {
     pub dir: PathBuf,

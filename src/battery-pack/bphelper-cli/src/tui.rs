@@ -157,11 +157,8 @@ enum DetailItem {
     Crate(String),
     /// An extended battery pack - opens crates.io
     Extends(String),
-    /// A template - opens GitHub tree URL (stores local path and resolved repo path)
-    Template {
-        _path: String,
-        repo_path: Option<String>,
-    },
+    /// A template - previews rendered output
+    Template { path: String },
     /// An example - opens GitHub blob URL (stores name and resolved repo path)
     Example {
         _name: String,
@@ -223,8 +220,7 @@ impl DetailScreen {
         let crates = self.detail.crates.iter().cloned().map(DetailItem::Crate);
         let extends = self.detail.extends.iter().cloned().map(DetailItem::Extends);
         let templates = self.detail.templates.iter().map(|t| DetailItem::Template {
-            _path: t.path.clone(),
-            repo_path: t.repo_path.clone(),
+            path: t.path.clone(),
         });
         let examples = self.detail.examples.iter().map(|e| DetailItem::Example {
             _name: e.name.clone(),
@@ -606,10 +602,6 @@ impl App {
             DetailNext,
             DetailPrev,
             OpenCratesIoUrl(String),
-            OpenTemplate {
-                repository: Option<String>,
-                repo_path: Option<String>,
-            },
             OpenExample {
                 repository: Option<String>,
                 repo_path: Option<String>,
@@ -677,13 +669,12 @@ impl App {
                                 };
                                 Action::OpenCratesIoUrl(full_name)
                             }
-                            DetailItem::Template {
-                                _path: _,
-                                repo_path,
-                            } => Action::OpenTemplate {
-                                repository: state.detail.repository.clone(),
-                                repo_path,
-                            },
+                            DetailItem::Template { path, .. } => Action::PreviewTemplate(
+                                Rc::clone(&state.detail),
+                                path,
+                                state.selected_index,
+                                state.came_from_list,
+                            ),
                             DetailItem::Example {
                                 _name: _,
                                 repo_path,
@@ -716,17 +707,13 @@ impl App {
                 }
                 KeyCode::Char('n') => {
                     // 'n' creates new project with currently selected template (if a template is selected)
-                    if let Some(DetailItem::Template {
-                        _path,
-                        repo_path: _,
-                    }) = state.selected_item()
-                    {
+                    if let Some(DetailItem::Template { path }) = state.selected_item() {
                         // Find the template name from the path
                         let template_name = state
                             .detail
                             .templates
                             .iter()
-                            .find(|t| t.path == _path)
+                            .find(|t| t.path == path)
                             .map(|t| t.name.clone());
                         Action::DetailNewProject(
                             Rc::clone(&state.detail),
@@ -740,10 +727,10 @@ impl App {
                 }
                 KeyCode::Char('p') => {
                     // 'p' previews the currently selected template
-                    if let Some(DetailItem::Template { _path, .. }) = state.selected_item() {
+                    if let Some(DetailItem::Template { path, .. }) = state.selected_item() {
                         Action::PreviewTemplate(
                             Rc::clone(&state.detail),
-                            _path,
+                            path,
                             state.selected_index,
                             state.came_from_list,
                         )
@@ -755,12 +742,12 @@ impl App {
                     // 'u' merges the selected template into the current project
                     if !state.in_project {
                         Action::None
-                    } else if let Some(DetailItem::Template { _path, .. }) = state.selected_item() {
+                    } else if let Some(DetailItem::Template { path, .. }) = state.selected_item() {
                         let template_name = state
                             .detail
                             .templates
                             .iter()
-                            .find(|t| t.path == _path)
+                            .find(|t| t.path == path)
                             .map(|t| t.name.clone());
                         if let Some(name) = template_name {
                             Action::DetailUseTemplate(
@@ -867,16 +854,6 @@ impl App {
             }
             Action::OpenCratesIoUrl(crate_name) => {
                 let url = format!("https://crates.io/crates/{}", crate_name);
-                self.pending_action = Some(PendingAction::OpenUrl { url });
-            }
-            Action::OpenTemplate {
-                repository,
-                repo_path,
-            } => {
-                let url = match repo_path {
-                    Some(path) => build_github_url(repository.as_deref(), &path),
-                    None => repository.unwrap_or_else(|| "https://crates.io".to_string()),
-                };
                 self.pending_action = Some(PendingAction::OpenUrl { url });
             }
             Action::OpenExample {
@@ -1037,28 +1014,15 @@ impl App {
                     .map(|t| t.name.clone())
                     .unwrap_or_else(|| template_path.clone());
 
-                // Find the crate root to render the template from.
-                // For registry packs the detail was built from a downloaded
-                // crate, but we don't keep that temp dir around. Use
-                // --crate-source / --path if available, otherwise try cargo
-                // metadata.
-                let crate_root = match &self.source {
-                    CrateSource::Local(ws) => {
-                        crate::registry::find_local_battery_pack_dir(ws, &detail.name).ok()
-                    }
-                    CrateSource::Registry => {
-                        // Try to locate via cargo metadata (works if already
-                        // installed as a build-dep).
-                        crate::manifest::resolve_battery_pack_manifest(&detail.name)
-                            .ok()
-                            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                    }
-                };
-
-                let content = match crate_root {
-                    Some(root) => {
+                // Resolve the crate directory (downloads from registry if needed).
+                let content = match crate::registry::resolve_crate_dir(
+                    &detail.name,
+                    self.pack_path.as_deref(),
+                    &self.source,
+                ) {
+                    Ok(resolved) => {
                         let opts = crate::template_engine::RenderOpts {
-                            crate_root: root,
+                            crate_root: resolved.dir,
                             template_path,
                             project_name: "my-project".to_string(),
                             defines: BTreeMap::new(),
@@ -1069,9 +1033,9 @@ impl App {
                             Err(e) => Text::from(format!("Failed to render preview: {e}")),
                         }
                     }
-                    None => Text::from(
-                        "Template preview unavailable — battery pack not found locally.\nUse --crate-source or install the pack first.",
-                    ),
+                    Err(e) => Text::from(format!(
+                        "Template preview unavailable: {e}\nUse --crate-source or install the pack first."
+                    )),
                 };
 
                 let line_count = content.lines.len() as u16;
@@ -1663,10 +1627,6 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 /// Build a GitHub tree URL for a directory path.
 /// If repository is set and looks like a GitHub URL, construct a tree URL.
 /// Otherwise fall back to a crates.io search or just open the repo root.
-fn build_github_url(repository: Option<&str>, path: &str) -> String {
-    build_github_ref_url(repository, "tree", path)
-}
-
 /// Build a GitHub blob URL for a file path.
 fn build_github_blob_url(repository: Option<&str>, path: &str) -> String {
     build_github_ref_url(repository, "blob", path)

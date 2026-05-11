@@ -23,7 +23,6 @@ fn make_detail(crates: &[&str], templates: &[&str], examples: &[&str]) -> Batter
                 name: name.to_string(),
                 path: format!("templates/{}", name),
                 description: None,
-                repo_path: None,
             })
             .collect(),
         examples: examples

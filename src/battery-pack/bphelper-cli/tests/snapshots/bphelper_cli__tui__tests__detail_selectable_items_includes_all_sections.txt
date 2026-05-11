@@ -6,12 +6,10 @@
         "tokio",
     ),
     Template {
-        _path: "templates/basic",
-        repo_path: None,
+        path: "templates/basic",
     },
     Template {
-        _path: "templates/advanced",
-        repo_path: None,
+        path: "templates/advanced",
     },
     Example {
         _name: "hello-world",
