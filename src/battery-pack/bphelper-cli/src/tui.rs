@@ -1033,9 +1033,7 @@ impl App {
                             Err(e) => Text::from(format!("Failed to render preview: {e}")),
                         }
                     }
-                    Err(e) => Text::from(format!(
-                        "Template preview unavailable: {e}\nUse --crate-source or install the pack first."
-                    )),
+                    Err(e) => Text::from(format!("Template preview unavailable: {e:#}")),
                 };
 
                 let line_count = content.lines.len() as u16;

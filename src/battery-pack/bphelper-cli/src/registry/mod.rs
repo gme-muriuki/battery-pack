@@ -747,8 +747,7 @@ fn fetch_battery_pack_detail_from_path(path: &str) -> Result<BatteryPackDetail> 
 
 /// Build `BatteryPackDetail` from a parsed `BatteryPackSpec`.
 ///
-/// Derives extends/crates from the spec's crate keys, fetches repo tree for
-/// template path resolution, and scans for examples.
+/// Derives extends/crates from the spec's crate keys and scans for examples.
 pub(crate) fn build_battery_pack_detail(
     crate_dir: &Path,
     spec: &bphelper_manifest::BatteryPackSpec,
@@ -767,10 +766,14 @@ pub(crate) fn build_battery_pack_detail(
         .collect();
     let crates: Vec<String> = crates_raw.into_iter().map(|s| s.to_string()).collect();
 
-    // Fetch the GitHub repository tree to resolve paths
-    let repo_tree = spec.repository.as_ref().and_then(|r| fetch_github_tree(r));
+    // Fetch the GitHub repository tree to resolve example paths (only if examples exist)
+    let has_examples = crate_dir.join("examples").exists();
+    let repo_tree = if has_examples {
+        spec.repository.as_ref().and_then(|r| fetch_github_tree(r))
+    } else {
+        None
+    };
 
-    // Convert templates with resolved repo paths
     let templates = spec
         .templates
         .iter()
@@ -919,8 +922,6 @@ pub(crate) fn find_example_path(tree: &[String], example_name: &str) -> Option<S
     tree.iter().find(|path| path.ends_with(&suffix)).cloned()
 }
 
-/// Find the full repository path for a template directory.
-/// Searches the tree for a path matching "templates/{name}" or "{name}".
 /// A resolved battery pack crate directory. Owns the temp dir (if any) to keep it alive.
 pub(crate) struct ResolvedCrate {
     pub dir: PathBuf,
