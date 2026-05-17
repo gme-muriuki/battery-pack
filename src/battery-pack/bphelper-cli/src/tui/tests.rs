@@ -23,7 +23,6 @@ fn make_detail(crates: &[&str], templates: &[&str], examples: &[&str]) -> Batter
                 name: name.to_string(),
                 path: format!("templates/{}", name),
                 description: None,
-                repo_path: None,
             })
             .collect(),
         examples: examples
@@ -271,6 +270,26 @@ fn detail_q_quits() {
     app.handle_key(KeyCode::Char('q'));
     assert!(app.should_quit);
 }
+
+/// [verify tui.nav.keyboard]
+#[test]
+fn detail_enter_on_template_opens_preview() {
+    let detail = make_detail(&[], &["basic"], &[]);
+    let mut app = make_app(Screen::Detail(DetailScreen {
+        detail: Rc::new(detail),
+        selected_index: 0, // first item is the template
+        came_from_list: false,
+        in_project: true,
+        is_installed: false,
+    }));
+
+    app.handle_key(KeyCode::Enter);
+
+    // Enter on a template transitions to the Preview screen (even if crate
+    // resolution fails, the screen still shows the error in a preview).
+    assert!(matches!(app.screen, Screen::Preview(_)));
+}
+
 // ====================================================================
 // Tier 3: Rendering tests
 // ====================================================================
