@@ -188,15 +188,16 @@ fn render(
             continue;
         }
 
-        let rendered_path = env.render_str(&rel_path.to_string_lossy(), minijinja::context! {})?;
+        // Normalize to forward slashes so rendered paths are OS-agnostic.
+        let rendered_path = env
+            .render_str(&rel_path.to_string_lossy(), minijinja::context! {})?
+            .replace('\\', "/");
         // Map _Cargo.toml → Cargo.toml so templates can ship Cargo.toml files
         // without cargo treating the directory as a separate crate boundary
         // during `cargo package`. Skip paths under templates/ so that battery
         // packs which generate other battery packs (e.g. with_template)
         // preserve _Cargo.toml in their scaffolded template directories.
-        //
-        // Use Path::starts_with so the check is separator-agnostic (Windows uses `\`).
-        let rendered_path = if rel_path.starts_with("templates") {
+        let rendered_path = if rendered_path.starts_with("templates") {
             rendered_path
         } else {
             rendered_path.replace("_Cargo.toml", "Cargo.toml")
