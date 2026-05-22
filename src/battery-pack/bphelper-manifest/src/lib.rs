@@ -6,11 +6,9 @@
 #[cfg(test)]
 mod test_support;
 
-use cargo_metadata::camino::Utf8Path;
 use cargo_metadata::{DependencyKind, Metadata, MetadataCommand, Package};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::Path;
 
 // ============================================================================
@@ -1620,7 +1618,7 @@ mod tests {
 
     #[test]
     fn error_on_invalid_toml() {
-        // cargo metadata rejects unparseable manifests before our parser runs.
+        // cargo metadata rejects unparsable manifests before our parser runs.
         let result = parse_test("not valid toml [[[");
         assert!(matches!(result, Err(Error::Metadata(_))));
     }
