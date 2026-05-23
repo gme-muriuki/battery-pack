@@ -1,5 +1,5 @@
 book
 target
 WIP.md
-.claude/settings.local.json 
 .claude/*
+!.claude/commands/
