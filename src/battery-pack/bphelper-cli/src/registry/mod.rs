@@ -5,7 +5,7 @@
 //! used by both the TUI and text output paths.
 
 use anyhow::{Context, Result, anyhow, bail};
-use bphelper_manifest::{discover_battery_packs, parse_battery_pack_from_path};
+use bphelper_manifest::{BatteryPackSpec, discover_battery_packs, parse_battery_pack_from_path};
 use flate2::read::GzDecoder;
 use serde::Deserialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -13,6 +13,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tar::Archive;
 
+use crate::completions::get_cache_dir;
 use crate::manifest::resolve_battery_pack_manifest;
 
 const CRATES_IO_API: &str = "https://crates.io/api/v1/crates";
@@ -251,18 +252,34 @@ pub(crate) fn fetch_bp_spec_from_registry(
     let spec = parse_battery_pack_from_path(&manifest_path)
         .map_err(|err| anyhow::anyhow!("Failed to parse battery pack '{}': {}", crate_name, err))?;
 
-    // Cache the parsed spec as JSON for autocomplete
-    let cache_dir = crate::completions::get_cache_dir();
-    if fs::create_dir_all(&cache_dir).is_ok()
-        && let Ok(json) = serde_json::to_string(&spec)
-    {
-        let cache_file = cache_dir.join(format!("{}_spec.json", crate_name));
-        let _ = fs::write(&cache_file, json);
-    }
+    // Cache the parsed spec as JSON for autocomplete (best-effort).
+    cache_spec_for_completion(crate_name, &spec);
 
     Ok((crate_info.version, spec))
 }
 
+/// Write a parsed spec to the autocomplete cache as JSON.
+fn cache_spec_for_completion(crate_name: &str, spec: &BatteryPackSpec) {
+    let cache_dir = get_cache_dir();
+    if let Err(err) = fs::create_dir_all(&cache_dir) {
+        eprintln!("warning: failed to create completion cache directory: {err}");
+        return;
+    }
+
+    let json = match serde_json::to_string(&spec) {
+        Ok(json) => json,
+        Err(err) => {
+            eprintln!("warning: failed to serialize '{crate_name}' for completion cache: {err}");
+            return;
+        }
+    };
+
+    let cache_file = cache_dir.join(format!("{crate_name}_spec.json"));
+
+    if let Err(err) = fs::write(&cache_file, json) {
+        eprintln!("warning: failed to write completion cache for '{crate_name}': {err}");
+    }
+}
 // ============================================================================
 // bp-managed dependency resolution
 // ============================================================================
