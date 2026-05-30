@@ -388,8 +388,10 @@ name = "bphelper-manifest"
 version = "0.5.5"
 dependencies = [
  "cargo_metadata",
+ "indoc",
  "serde",
  "serde_json",
+ "snapbox",
  "tempfile",
  "thiserror 2.0.18",
  "toml 0.8.23",

@@ -17,3 +17,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+indoc = "2"
+snapbox.workspace = true

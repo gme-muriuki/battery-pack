@@ -956,9 +956,12 @@ fn validate_templates_on_disk(
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use crate::test_support::{WorkspaceFixture, parse_test};
 
     use super::*;
+    use indoc::indoc;
 
     // -- Helper unit tests --
 
@@ -967,12 +970,12 @@ mod tests {
         let mut fx = WorkspaceFixture::new();
         fx.add_pack(
             "test-pack",
-            r#"
-        [package]
-        name = "test-battery-pack"
-        version = "0.1.0"
-        keywords = ["battery-pack"]
-      "#,
+            indoc! {r#"
+                [package]
+                name = "test-battery-pack"
+                version = "0.1.0"
+                keywords = ["battery-pack"]
+            "#},
         );
 
         let root = fx.finalize();
@@ -984,6 +987,13 @@ mod tests {
 
         let spec = parse_battery_pack_from_path(&non_canonical).unwrap();
 
+        // Snapshot: identity survives path normalization.
+        snapbox::assert_data_eq!(
+            format!("{} {}", spec.name, spec.version),
+            snapbox::str![[r#"test-battery-pack 0.1.0"#]]
+        );
+
+        // Point assertion retained for direct failure messages.
         assert_eq!(spec.name, "test-battery-pack");
     }
 
@@ -998,64 +1008,86 @@ mod tests {
 
     #[test]
     fn feature_with_dep_prefix_resolves() {
-        let manifest = r#"
-        [package]
-        name = "test-battery-pack"
-        version = "0.1.0"
-        keywords = ["battery-pack"]
+        let manifest = indoc! {r#"
+            [package]
+            name = "test-battery-pack"
+            version = "0.1.0"
+            keywords = ["battery-pack"]
 
-        [dependencies]
-        indicatif = {version = "0.17", optional = true}
+            [dependencies]
+            indicatif = { version = "0.17", optional = true }
 
-        [features]
-        indicators = ["dep:indicatif"]
-        "#;
+            [features]
+            indicators = ["dep:indicatif"]
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         spec.validate().unwrap();
         let resolved = spec.resolve_for_features(&BTreeSet::from(["indicators".to_string()]));
 
+        // Snapshot: `dep:indicatif` pulls indicatif into the resolved set.
+        snapbox::assert_data_eq!(
+            render_resolved(&resolved),
+            snapbox::str![[r#"indicatif 0.17"#]]
+        );
+
+        // Point assertion retained.
         assert!(resolved.contains_key("indicatif"));
     }
 
     #[test]
     fn feature_with_slash_feature_resolves() {
-        let manifest = r#"
-          [package]
-          name = "test-battery-pack"
-          version = "0.1.0"
-          keywords = ["battery-pack"]
+        let manifest = indoc! {r#"
+            [package]
+            name = "test-battery-pack"
+            version = "0.1.0"
+            keywords = ["battery-pack"]
 
-          [dependencies]
-          serde = {version = "1", optional = true}
+            [dependencies]
+            serde = { version = "1", optional = true }
 
-          [features]
-          fancy = ["serde/derive"]
-        "#;
+            [features]
+            fancy = ["serde/derive"]
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         spec.validate().unwrap();
         let resolved = spec.resolve_for_features(&BTreeSet::from(["fancy".to_string()]));
+
+        // Snapshot: `serde/derive` pulls serde into the resolved set.
+        snapbox::assert_data_eq!(render_resolved(&resolved), snapbox::str![[r#"serde 1"#]]);
+
+        // Point assertion retained.
         assert!(resolved.contains_key("serde"));
     }
 
     #[test]
     fn feature_with_weak_slash_feature_resolve() {
-        let manifest = r#"
-        [package]
-        name = "test-battery-pack"
-        version = "0.1.0"
-        keywords = ["battery-pack"]
+        let manifest = indoc! {r#"
+            [package]
+            name = "test-battery-pack"
+            version = "0.1.0"
+            keywords = ["battery-pack"]
 
-        [dependencies]
-        serde = {version = "1", optional = true}
+            [dependencies]
+            serde = { version = "1", optional = true }
 
-        [features]
-        maybe-derive = ["serde?/derive"]
-        "#;
+            [features]
+            maybe-derive = ["serde?/derive"]
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         spec.validate().unwrap();
+        let resolved = spec.resolve_for_features(&BTreeSet::from(["maybe-derive".to_string()]));
+
+        // Snapshot: weak `serde?/derive` is treated as a reference to serde by
+        // the resolver, so serde lands in the resolved set (note: this differs
+        // from Cargo's weak-dep semantics, which would only enable serde's
+        // `derive` feature if serde were already enabled elsewhere).
+        snapbox::assert_data_eq!(render_resolved(&resolved), snapbox::str!["serde 1"]);
+
+        // Point assertion retained.
+        assert!(resolved.contains_key("serde"));
     }
 
     // -- Parsing tests --
@@ -1064,7 +1096,7 @@ mod tests {
     // [verify format.deps.source-of-truth]
     // [verify format.deps.kind-mapping]
     fn parse_deps_from_all_sections() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1077,7 +1109,7 @@ mod tests {
 
             [build-dependencies]
             cc = "1.0"
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert_eq!(spec.crates.len(), 3);
@@ -1099,7 +1131,7 @@ mod tests {
     #[test]
     // [verify format.deps.version-features]
     fn parse_version_and_features() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1107,7 +1139,7 @@ mod tests {
             [dependencies]
             tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
             anyhow = "1"
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         let tokio = &spec.crates["tokio"];
@@ -1126,7 +1158,7 @@ mod tests {
     #[test]
     // [verify format.features.optional]
     fn parse_optional_deps() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1134,7 +1166,7 @@ mod tests {
             [dependencies]
             clap = { version = "4", features = ["derive"] }
             indicatif = { version = "0.17", optional = true }
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert!(!spec.crates["clap"].optional);
@@ -1144,7 +1176,7 @@ mod tests {
     #[test]
     // [verify format.features.grouping]
     fn parse_cargo_features() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1158,7 +1190,7 @@ mod tests {
             [features]
             default = ["clap", "dialoguer"]
             indicators = ["indicatif", "console"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert_eq!(spec.features.len(), 2);
@@ -1175,7 +1207,7 @@ mod tests {
     #[test]
     // [verify format.hidden.metadata]
     fn parse_hidden_deps() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1188,7 +1220,7 @@ mod tests {
 
             [package.metadata.battery-pack]
             hidden = ["serde*"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert_eq!(spec.hidden, BTreeSet::from(["serde*".to_string()]));
@@ -1196,7 +1228,7 @@ mod tests {
 
     #[test]
     fn parse_templates() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1204,7 +1236,7 @@ mod tests {
             [package.metadata.battery.templates]
             default = { path = "templates/default", description = "A basic starting point" }
             advanced = { path = "templates/advanced", description = "Full-featured setup" }
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert_eq!(spec.templates.len(), 2);
@@ -1217,13 +1249,13 @@ mod tests {
 
     #[test]
     fn parse_description_and_repository() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             description = "Error handling crates"
             repository = "https://github.com/example/repo"
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert_eq!(spec.description, "Error handling crates");
@@ -1238,19 +1270,19 @@ mod tests {
     #[test]
     // [verify format.crate.name]
     fn validate_name() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
-        "#;
+        "#};
         let spec = parse_test(manifest).unwrap();
         assert!(spec.validate().is_ok());
 
-        let manifest_bad = r#"
+        let manifest_bad = indoc! {r#"
             [package]
             name = "not-a-battery-pack-crate"
             version = "0.1.0"
-        "#;
+        "#};
         let spec_bad = parse_test(manifest_bad).unwrap();
         let err = spec_bad.validate().unwrap_err();
         assert!(matches!(err, Error::InvalidName { .. }));
@@ -1287,7 +1319,7 @@ mod tests {
         assert!(matches!(err, Error::UnknownCrateInFeature { .. }));
 
         // Valid case (round-tripped through parse_test)
-        let manifest_ok = r#"
+        let manifest_ok = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1298,7 +1330,7 @@ mod tests {
 
             [features]
             default = ["clap", "dialoguer"]
-        "#;
+        "#};
         let spec_ok = parse_test(manifest_ok).unwrap();
         assert!(spec_ok.validate().is_ok());
     }
@@ -1308,7 +1340,7 @@ mod tests {
     #[test]
     // [verify format.features.default]
     fn resolve_default_feature() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1321,7 +1353,7 @@ mod tests {
             [features]
             default = ["clap", "dialoguer"]
             indicators = ["indicatif"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         let resolved = spec.resolve_crates(&[]);
@@ -1335,7 +1367,7 @@ mod tests {
     #[test]
     // [verify format.features.default]
     fn resolve_no_default_feature() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1344,7 +1376,7 @@ mod tests {
             clap = "4"
             dialoguer = "0.11"
             indicatif = { version = "0.17", optional = true }
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         // No features section at all
@@ -1360,7 +1392,7 @@ mod tests {
     #[test]
     // [verify format.features.additive]
     fn resolve_additive_features() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1374,7 +1406,7 @@ mod tests {
             [features]
             default = ["clap", "dialoguer"]
             indicators = ["indicatif", "console"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         let resolved = spec.resolve_crates(&["default", "indicators"]);
@@ -1388,7 +1420,7 @@ mod tests {
 
     #[test]
     fn resolve_feature_without_default() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1401,7 +1433,7 @@ mod tests {
             [features]
             default = ["clap", "dialoguer"]
             indicators = ["indicatif"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         // Only indicators, no default
@@ -1415,7 +1447,7 @@ mod tests {
     #[test]
     // [verify format.features.augment]
     fn resolve_feature_augmentation() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1426,7 +1458,7 @@ mod tests {
             [features]
             default = ["tokio"]
             full = ["tokio"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         // Both default and full reference tokio — features should be merged
@@ -1440,7 +1472,7 @@ mod tests {
 
     #[test]
     fn resolve_all() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1454,7 +1486,7 @@ mod tests {
 
             [features]
             default = ["clap"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         let all = spec.resolve_all();
@@ -1471,7 +1503,7 @@ mod tests {
     #[test]
     // [verify format.hidden.effect]
     fn hidden_exact_match() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1482,7 +1514,7 @@ mod tests {
 
             [package.metadata.battery-pack]
             hidden = ["serde"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert!(spec.is_hidden("serde"));
@@ -1492,7 +1524,7 @@ mod tests {
     #[test]
     // [verify format.hidden.glob]
     fn hidden_glob_pattern() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1505,7 +1537,7 @@ mod tests {
 
             [package.metadata.battery-pack]
             hidden = ["serde*"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert!(spec.is_hidden("serde"));
@@ -1517,7 +1549,7 @@ mod tests {
     #[test]
     // [verify format.hidden.wildcard]
     fn hidden_wildcard_all() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1528,7 +1560,7 @@ mod tests {
 
             [package.metadata.battery-pack]
             hidden = ["*"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert!(spec.is_hidden("serde"));
@@ -1538,7 +1570,7 @@ mod tests {
 
     #[test]
     fn visible_crates_filters_hidden() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1551,7 +1583,7 @@ mod tests {
 
             [package.metadata.battery-pack]
             hidden = ["serde*"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         let visible = spec.visible_crates();
@@ -1567,7 +1599,7 @@ mod tests {
     // [verify tui.browse.hidden]
     #[test]
     fn all_crates_with_grouping_filters_hidden() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1580,7 +1612,7 @@ mod tests {
 
             [package.metadata.battery-pack]
             hidden = ["serde*"]
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         let grouped = spec.all_crates_with_grouping();
@@ -1634,7 +1666,7 @@ mod tests {
 
     #[test]
     fn full_battery_pack_parse() {
-        let manifest = r#"
+        let manifest = indoc! {r#"
             [package]
             name = "cli-battery-pack"
             version = "0.3.0"
@@ -1664,7 +1696,7 @@ mod tests {
 
             [package.metadata.battery.templates]
             default = { path = "templates/default", description = "Basic CLI app" }
-        "#;
+        "#};
 
         let spec = parse_test(manifest).unwrap();
         assert!(spec.validate().is_ok());
@@ -1822,29 +1854,145 @@ mod tests {
         assert!(names.contains(&"fancy-battery-pack"));
     }
 
+    /// [verify cli.source.discover] negative case -- non-battery-pack members are excluded.
+    #[test]
+    fn discover_battery_packs_excludes_non_battery_pack_members() {
+        let mut fx = WorkspaceFixture::new();
+        fx.add_pack(
+            "cli-pack",
+            indoc! {r#"
+        [package]
+        name = "cli-battery-pack"
+        version = "0.1.0"
+        "#},
+        );
+        fx.add_pack(
+            "helper",
+            indoc! {r#"
+        [package]
+        name = "regular-helper"
+        version = "0.1.0"
+        "#},
+        );
+
+        let root = fx.finalize();
+        let packs = discover_battery_packs(root).unwrap();
+
+        // Snapshot: only the BP member survives the filter; the helper is dropped.
+        let summary = render_discovered(&packs);
+        snapbox::assert_data_eq!(summary, snapbox::str![[r#"cli-battery-pack 0.1.0"#]]);
+
+        // Point assertions retained for direct failure messages.
+        let names = packs.iter().map(|pk| pk.name.as_str()).collect::<Vec<_>>();
+        assert!(names.contains(&"cli-battery-pack"));
+        assert!(!names.contains(&"regular-helper"));
+    }
+
+    /// [verify cli.source.discover] glob members - `members = ["crates/*"]` is expanded
+    #[test]
+    fn discover_bp_handles_glob_members() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Pure workspace root using a glob members pattern.
+        fs::write(
+            root.join("Cargo.toml"),
+            indoc! {r#"
+                [workspace]
+                resolver = "2"
+                members = ["crates/*"]
+            "#},
+        )
+        .unwrap();
+
+        // Two battery-pack members under crates/ for the glob to expand to.
+        for name in ["foo-battery-pack", "bar-battery-pack"] {
+            let pkg_dir = root.join("crates").join(name);
+            fs::create_dir_all(pkg_dir.join("src")).unwrap();
+            fs::write(pkg_dir.join("src").join("lib.rs"), "").unwrap();
+            fs::write(
+                pkg_dir.join("Cargo.toml"),
+                format!(
+                    indoc! {r#"
+                        [package]
+                        name = "{name}"
+                        version = "0.1.0"
+                    "#},
+                    name = name
+                ),
+            )
+            .unwrap();
+        }
+
+        let packs = discover_battery_packs(root).unwrap();
+
+        // Snapshot: glob expanded to both members.
+        let summary = render_discovered(&packs);
+        snapbox::assert_data_eq!(
+            summary,
+            snapbox::str![[r#"
+bar-battery-pack 0.1.0
+foo-battery-pack 0.1.0
+"#]]
+        );
+
+        // Point assertions retained for direct failure messages.
+        let names = packs.iter().map(|pk| pk.name.as_str()).collect::<Vec<_>>();
+
+        assert!(names.contains(&"bar-battery-pack"));
+        assert!(names.contains(&"foo-battery-pack"));
+    }
+
+    /// Render discovered packs as a stable, sorted `name version` listing for snapshots.
+    fn render_discovered(packs: &[BatteryPackSpec]) -> String {
+        let mut lines: Vec<String> = packs
+            .iter()
+            .map(|p| format!("{} {}", p.name, p.version))
+            .collect();
+        lines.sort();
+        lines.join("\n")
+    }
+
+    /// Render a resolved crate map as a `name version` listing for snapshots
+    fn render_resolved(crates: &BTreeMap<String, CrateSpec>) -> String {
+        crates
+            .iter()
+            .map(|(name, spec)| format!("{} {}", name, spec.version))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
     // [verify cli.source.discover] standalone case — no workspace, parses crate directly
     fn discover_battery_packs_standalone() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
             tmp.path().join("Cargo.toml"),
-            r#"
-[package]
-name = "solo-battery-pack"
-version = "1.0.0"
+            indoc! {r#"
+                [package]
+                name = "solo-battery-pack"
+                version = "1.0.0"
 
-[features]
-default = ["dep:tokio"]
+                [features]
+                default = ["dep:tokio"]
 
-[dependencies]
-tokio = { version = "1", optional = true }
-"#,
+                [dependencies]
+                tokio = { version = "1", optional = true }
+            "#},
         )
         .unwrap();
         std::fs::create_dir(tmp.path().join("src")).unwrap();
         std::fs::write(tmp.path().join("src/lib.rs"), "").unwrap();
 
         let packs = discover_battery_packs(tmp.path()).unwrap();
+
+        // Snapshot: standalone crate is treated as a 1-member workspace.
+        snapbox::assert_data_eq!(
+            render_discovered(&packs),
+            snapbox::str![[r#"solo-battery-pack 1.0.0"#]]
+        );
+
+        // Point assertions retained.
         assert_eq!(packs.len(), 1);
         assert_eq!(packs[0].name, "solo-battery-pack");
         assert_eq!(packs[0].version, "1.0.0");
@@ -1871,38 +2019,32 @@ tokio = { version = "1", optional = true }
     #[test]
     // [verify format.crate.name]
     fn validate_spec_name() {
-        let good = parse_test(
-            r#"
+        let good = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             repository = "https://github.com/example/test"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
         assert!(good.validate_spec().is_clean());
 
-        let exact = parse_test(
-            r#"
+        let exact = parse_test(indoc! {r#"
             [package]
             name = "battery-pack"
             version = "0.1.0"
             repository = "https://github.com/example/test"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
         assert!(exact.validate_spec().is_clean());
 
-        let bad = parse_test(
-            r#"
+        let bad = parse_test(indoc! {r#"
             [package]
             name = "not-a-pack"
             version = "0.1.0"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
         let report = bad.validate_spec();
         assert!(report.has_errors());
@@ -1917,25 +2059,21 @@ tokio = { version = "1", optional = true }
     #[test]
     // [verify format.crate.keyword]
     fn validate_spec_keyword() {
-        let good = parse_test(
-            r#"
+        let good = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             repository = "https://github.com/example/test"
             keywords = ["battery-pack", "helpers"]
-        "#,
-        )
+        "#})
         .unwrap();
         assert!(good.validate_spec().is_clean());
 
-        let missing = parse_test(
-            r#"
+        let missing = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
-        "#,
-        )
+        "#})
         .unwrap();
         let report = missing.validate_spec();
         assert!(report.has_errors());
@@ -1946,14 +2084,12 @@ tokio = { version = "1", optional = true }
                 .any(|d| d.rule == "format.crate.keyword")
         );
 
-        let wrong = parse_test(
-            r#"
+        let wrong = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             keywords = ["cli", "helpers"]
-        "#,
-        )
+        "#})
         .unwrap();
         let report = wrong.validate_spec();
         assert!(report.has_errors());
@@ -1968,8 +2104,7 @@ tokio = { version = "1", optional = true }
     #[test]
     // [verify format.features.grouping]
     fn validate_spec_features() {
-        let good = parse_test(
-            r#"
+        let good = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -1981,8 +2116,7 @@ tokio = { version = "1", optional = true }
 
             [features]
             default = ["clap"]
-        "#,
-        )
+        "#})
         .unwrap();
         assert!(good.validate_spec().is_clean());
 
@@ -2034,14 +2168,12 @@ tokio = { version = "1", optional = true }
         )
         .unwrap();
 
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
 
         let report = validate_on_disk(&spec, dir.path());
@@ -2056,14 +2188,12 @@ tokio = { version = "1", optional = true }
         std::fs::create_dir(&src).unwrap();
         std::fs::write(src.join("lib.rs"), "//! Doc comment\npub fn hello() {}\n").unwrap();
 
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
 
         let report = validate_on_disk(&spec, dir.path());
@@ -2085,14 +2215,12 @@ tokio = { version = "1", optional = true }
         std::fs::create_dir(&src).unwrap();
         std::fs::write(src.join("lib.rs"), "//! Doc\n").unwrap();
 
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
 
         // Clean case — only lib.rs
@@ -2119,8 +2247,7 @@ tokio = { version = "1", optional = true }
         std::fs::create_dir(&src).unwrap();
         std::fs::write(src.join("lib.rs"), "//! Doc\n").unwrap();
 
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -2128,8 +2255,7 @@ tokio = { version = "1", optional = true }
 
             [package.metadata.battery.templates]
             default = { path = "templates/default", description = "Basic" }
-        "#,
-        )
+        "#})
         .unwrap();
 
         // Missing template directory
@@ -2161,8 +2287,7 @@ tokio = { version = "1", optional = true }
         std::fs::create_dir(&src).unwrap();
         std::fs::write(src.join("lib.rs"), "//! Doc\n").unwrap();
 
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -2170,8 +2295,7 @@ tokio = { version = "1", optional = true }
 
             [package.metadata.battery.templates]
             default = { path = "templates/default", description = "Basic" }
-        "#,
-        )
+        "#})
         .unwrap();
 
         let tmpl = dir.path().join("templates/default");
@@ -2196,8 +2320,7 @@ tokio = { version = "1", optional = true }
         std::fs::create_dir(&src).unwrap();
         std::fs::write(src.join("lib.rs"), "//! Doc\n").unwrap();
 
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
@@ -2205,8 +2328,7 @@ tokio = { version = "1", optional = true }
 
             [package.metadata.battery.templates]
             default = { path = "templates/default", description = "Basic" }
-        "#,
-        )
+        "#})
         .unwrap();
 
         let tmpl = dir.path().join("templates/default");
@@ -2227,14 +2349,12 @@ tokio = { version = "1", optional = true }
     #[test]
     // [verify format.crate.repository]
     fn validate_warns_on_missing_repository() {
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
         let report = spec.validate_spec();
         assert!(
@@ -2253,15 +2373,13 @@ tokio = { version = "1", optional = true }
     #[test]
     // [verify format.crate.repository]
     fn validate_no_warning_when_repository_present() {
-        let spec = parse_test(
-            r#"
+        let spec = parse_test(indoc! {r#"
             [package]
             name = "test-battery-pack"
             version = "0.1.0"
             repository = "https://github.com/example/repo"
             keywords = ["battery-pack"]
-        "#,
-        )
+        "#})
         .unwrap();
         let report = spec.validate_spec();
         assert!(
