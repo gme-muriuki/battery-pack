@@ -5,7 +5,7 @@
 //! - MiniJinja syntax (`{{ project_name }}`, `{% include %}`, etc.)
 //! - Pre-set variable overrides (for non-interactive / test usage)
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use bphelper_manifest::parse_battery_pack_from_path;
 use serde::Deserialize;
 use std::collections::BTreeMap;
@@ -699,8 +699,8 @@ pub(crate) fn preview_template(opts: &PreviewOpts<'_>) -> Result<(String, Vec<Re
     let resolved = crate::registry::resolve_crate_dir(opts.battery_pack, opts.path, opts.source)?;
 
     let manifest_path = resolved.dir.join("Cargo.toml");
-    let spec = parse_battery_pack_from_path(&manifest_path)
-        .map_err(|err| anyhow!("Failed to parse battery pack: {}", err))?;
+    let spec =
+        parse_battery_pack_from_path(&manifest_path).context("Failed to parse battery pack")?;
 
     let temp_spec = spec.templates.get(opts.template).ok_or_else(|| {
         let available: Vec<_> = spec.templates.keys().map(|s| s.as_str()).collect();

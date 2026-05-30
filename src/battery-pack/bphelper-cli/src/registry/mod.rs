@@ -4,7 +4,7 @@
 //! from crates.io or a local workspace. It also defines the shared data types
 //! used by both the TUI and text output paths.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use bphelper_manifest::{BatteryPackSpec, discover_battery_packs, parse_battery_pack_from_path};
 use flate2::read::GzDecoder;
 use serde::Deserialize;
@@ -250,7 +250,7 @@ pub(crate) fn fetch_bp_spec_from_registry(
 
     let manifest_path = crate_dir.join("Cargo.toml");
     let spec = parse_battery_pack_from_path(&manifest_path)
-        .map_err(|err| anyhow::anyhow!("Failed to parse battery pack '{}': {}", crate_name, err))?;
+        .with_context(|| format!("Failed to parse battery pack '{}'", crate_name))?;
 
     // Cache the parsed spec as JSON for autocomplete (best-effort).
     cache_spec_for_completion(crate_name, &spec);
@@ -498,7 +498,7 @@ pub(crate) fn fetch_battery_pack_spec(bp_name: &str) -> Result<bphelper_manifest
     let manifest_path = resolve_battery_pack_manifest(bp_name)?;
 
     parse_battery_pack_from_path(&manifest_path)
-        .map_err(|err| anyhow!("Failed to parse battery pack '{}': {}", bp_name, err))
+        .with_context(|| format!("Failed to parse battery pack '{}'", bp_name))
 }
 
 pub(crate) fn load_installed_bp_spec(
@@ -509,7 +509,7 @@ pub(crate) fn load_installed_bp_spec(
     if let Some(local_path) = path {
         let manifest_path = Path::new(local_path).join("Cargo.toml");
         return parse_battery_pack_from_path(&manifest_path)
-            .map_err(|err| anyhow!("Failed to parse battery pack '{}': {}", bp_name, err));
+            .with_context(|| format!("Failed to parse battery pack '{}'", bp_name));
     }
     match source {
         CrateSource::Registry => fetch_battery_pack_spec(bp_name),
@@ -671,7 +671,7 @@ pub(crate) fn fetch_bp_spec(
             let crate_dir = find_local_battery_pack_dir(workspace_dir, &crate_name)?;
             let manifest_path = crate_dir.join("Cargo.toml");
             let spec = parse_battery_pack_from_path(&manifest_path)
-                .map_err(|err| anyhow!("Failed to parse battery pack '{}': {}", crate_name, err))?;
+                .with_context(|| format!("Failed to parse battery pack '{}'", crate_name))?;
             Ok((None, spec))
         }
     }
@@ -731,8 +731,8 @@ pub(crate) fn fetch_battery_pack_detail(
 
     // Parse the battery pack spec
     let manifest_path = crate_dir.join("Cargo.toml");
-    let spec = parse_battery_pack_from_path(&manifest_path)
-        .map_err(|err| anyhow::anyhow!("Failed to parse battery pack: {}", err))?;
+    let spec =
+        parse_battery_pack_from_path(&manifest_path).context("Failed to parse battery pack")?;
 
     // Fetch owners from crates.io
     let owners = fetch_owners(&crate_name)?;
@@ -744,8 +744,8 @@ pub(crate) fn fetch_battery_pack_detail(
 fn fetch_battery_pack_detail_from_path(path: &str) -> Result<BatteryPackDetail> {
     let crate_dir = std::path::Path::new(path);
     let manifest_path = crate_dir.join("Cargo.toml");
-    let spec = parse_battery_pack_from_path(&manifest_path)
-        .map_err(|err| anyhow::anyhow!("Failed to parse battery pack: {}", err))?;
+    let spec =
+        parse_battery_pack_from_path(&manifest_path).context("Failed to parse battery pack")?;
 
     build_battery_pack_detail(crate_dir, &spec, Vec::new())
 }

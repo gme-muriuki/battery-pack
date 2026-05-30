@@ -3,7 +3,7 @@
 //! This module contains the `main()` entry point and all subcommand handlers.
 //! Depends on `registry` and `manifest`.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use bphelper_manifest::parse_battery_pack_from_path;
 use clap::{CommandFactory, Parser, Subcommand};
 use std::collections::{BTreeMap, BTreeSet};
@@ -746,10 +746,9 @@ pub(crate) fn add_battery_pack(
     let (bp_version, bp_spec) = if let Some(local_path) = path {
         let manifest_path = Path::new(local_path).join("Cargo.toml");
         let spec = parse_battery_pack_from_path(&manifest_path)
-            .map_err(|err| anyhow!("Failed to parse battery pack '{}': {}", crate_name, err))?;
-        let version = spec.version.clone(); // !quite sure?
+            .with_context(|| format!("Failed to parse battery pack '{}'", crate_name))?;
 
-        (Some(version), spec)
+        (None, spec)
     } else {
         fetch_bp_spec(source, name)?
     };
@@ -1556,8 +1555,7 @@ fn parse_template_metadata(
     manifest_path: &Path,
     crate_name: &str,
 ) -> Result<BTreeMap<String, TemplateConfig>> {
-    let spec = parse_battery_pack_from_path(manifest_path)
-        .map_err(|err| anyhow!("Failed to parse Cargo.toml: {}", err))?;
+    let spec = parse_battery_pack_from_path(manifest_path).context("Failed to parse Cargo.toml")?;
 
     if spec.templates.is_empty() {
         bail!(

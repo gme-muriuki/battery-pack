@@ -1,6 +1,6 @@
 //! Battery pack validation: structure checks, packaging, and template compilation.
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use bphelper_manifest::parse_battery_pack_from_path;
 use std::path::Path;
 
@@ -119,7 +119,7 @@ pub fn validate(manifest_dir: &str) -> Result<()> {
         .and_then(|s| s.to_str())
         .unwrap_or("unknown");
     let spec = parse_battery_pack_from_path(&cargo_toml)
-        .map_err(|err| anyhow!("failed to parse {}: {}", cargo_toml.display(), err))?;
+        .with_context(|| format!("failed to parse {}", cargo_toml.display()))?;
 
     if spec.templates.is_empty() {
         println!("no templates to validate");
